@@ -8,13 +8,13 @@ CLASS lcl_main IMPLEMENTATION.
 
   METHOD set_default_period.
 *   Default: erster Tag (heutiger Monat - 11) bis letzter Tag (heutiger Monat)
-    DATA(month_start)   = sy-datum.
-    month_start+6(2)    = '01'.
+    DATA(month_start) = sy-datum.
+    month_start+6(2)  = '01'.
 
 *   letzter Tag des aktuellen Monats: Anfang Folgemonat - 1 Tag
-    DATA(next_month)    = month_start + 31.
-    next_month+6(2)     = '01'.
-    DATA(period_high)   = next_month - 1.
+    DATA(next_month)  = month_start + 31.
+    next_month+6(2)   = '01'.
+    DATA(period_high) = next_month - 1.
 
 *   erster Tag von vor 11 Monaten = 12-Monats-Window
     DATA(period_low) = month_start.
@@ -29,6 +29,7 @@ CLASS lcl_main IMPLEMENTATION.
                          high   = period_high ) ).
   ENDMETHOD.
 
+
   METHOD check_selection.
     IF s_fkdat IS INITIAL.
       MESSAGE 'Bitte einen Zeitraum angeben.' TYPE 'E'.
@@ -40,11 +41,12 @@ CLASS lcl_main IMPLEMENTATION.
       months_diff = ( period-high+0(4) - period-low+0(4) ) * 12
                   + ( period-high+4(2) - period-low+4(2) ) + 1.
       IF months_diff > c_mat_dispo-months_window.
-        MESSAGE |Zeitraum umfasst { months_diff } Monate. Pivot zeigt nur die ersten { c_mat_dispo-months_window } Monate.|
+        MESSAGE |Zeitraum umfasst { months_diff } Monate – Pivot zeigt nur die ersten { c_mat_dispo-months_window } Monate.|
                 TYPE 'I'.
       ENDIF.
     ENDIF.
   ENDMETHOD.
+
 
   METHOD run.
     build_month_buckets( ).
@@ -60,6 +62,7 @@ CLASS lcl_main IMPLEMENTATION.
     display_alv( ).
   ENDMETHOD.
 
+
   METHOD build_month_buckets.
     READ TABLE s_fkdat INTO DATA(period) INDEX 1.
     IF sy-subrc <> 0 OR period-low IS INITIAL.
@@ -67,7 +70,7 @@ CLASS lcl_main IMPLEMENTATION.
     ENDIF.
 
     DATA(start_date) = period-low.
-    start_date+6(2)  = '01'.   "auf Monatsanfang setzen
+    start_date+6(2)  = '01'.   "auf Monatsanfang normieren
 
     DATA(month_names) = VALUE stringtab(
       ( |JAN| ) ( |FEB| ) ( |MAR| ) ( |APR| ) ( |MAI| ) ( |JUN| )
@@ -87,16 +90,16 @@ CLASS lcl_main IMPLEMENTATION.
         header_text = |{ month_text } { year }|
       ) INTO TABLE months.
 
-*     Naechsten Monat berechnen
+*     Naechsten Monat berechnen: +31 Tage, dann auf 1. setzen
       current = current + 31.
       current+6(2) = '01'.
     ENDDO.
   ENDMETHOD.
 
+
   METHOD select_invoices.
     IF s_matnr IS INITIAL.
-      "Keine Materialeinschraenkung -> Hinweis (Performance)
-      MESSAGE 'Keine Materialeinschraenkung gewaehlt - Selektion kann lange dauern.'
+      MESSAGE 'Keine Materialeinschraenkung gewaehlt – Selektion kann lange dauern.'
               TYPE 'S' DISPLAY LIKE 'W'.
     ENDIF.
 
@@ -122,9 +125,10 @@ CLASS lcl_main IMPLEMENTATION.
       INTO CORRESPONDING FIELDS OF TABLE @invoices.
   ENDMETHOD.
 
+
   METHOD build_hierarchy.
-*   Liste der Warenempfaenger als Ausgangsbasis
-    DATA(ship_to_keys) = VALUE STANDARD TABLE OF kunnr( ).
+*   Liste der Warenempfaenger dedupliziert aus Fakturen
+    DATA ship_to_keys TYPE STANDARD TABLE OF kunnr WITH EMPTY KEY.
     LOOP AT invoices ASSIGNING FIELD-SYMBOL(<inv>).
       INSERT <inv>-kunwe INTO TABLE ship_to_keys.
     ENDLOOP.
@@ -135,14 +139,11 @@ CLASS lcl_main IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-*   ---------- Stufe 1: KNVH fuer Warenempfaenger ----------
-    DATA ship_to_range TYPE STANDARD TABLE OF kunnr.
-    ship_to_range = ship_to_keys.
-
+*   ---------- Stufe 1: direkter Elternknoten in KNVH ----------
     SELECT kunnr, hkunnr
       FROM knvh
-      FOR ALL ENTRIES IN @ship_to_range
-      WHERE kunnr =  @ship_to_range-table_line
+      FOR ALL ENTRIES IN @ship_to_keys
+      WHERE kunnr =  @ship_to_keys-table_line
         AND hityp =  @p_hityp
         AND vkorg =  @p_vkorg
         AND vtweg =  @p_vtweg
@@ -150,8 +151,8 @@ CLASS lcl_main IMPLEMENTATION.
         AND datbi >= @sy-datum
       INTO TABLE @DATA(level1).
 
-*   ---------- Stufe 2: KNVH fuer Stufe-1-Eltern ----------
-    DATA(level1_parents) = VALUE STANDARD TABLE OF kunnr( ).
+*   ---------- Stufe 2: Elternknoten der Stufe-1-Knoten ----------
+    DATA level1_parents TYPE STANDARD TABLE OF kunnr WITH EMPTY KEY.
     LOOP AT level1 ASSIGNING FIELD-SYMBOL(<l1>).
       INSERT <l1>-hkunnr INTO TABLE level1_parents.
     ENDLOOP.
@@ -172,8 +173,9 @@ CLASS lcl_main IMPLEMENTATION.
         INTO TABLE @level2.
     ENDIF.
 
-*   ---------- Namen aller relevanten Kunden ueber KNA1 ----------
-    DATA(name_keys) = ship_to_keys.
+*   ---------- KNA1-Namen fuer alle beteiligten Kunden ----------
+    DATA name_keys TYPE STANDARD TABLE OF kunnr WITH EMPTY KEY.
+    name_keys = ship_to_keys.
     LOOP AT level1 ASSIGNING <l1>.
       INSERT <l1>-hkunnr INTO TABLE name_keys.
     ENDLOOP.
@@ -189,8 +191,7 @@ CLASS lcl_main IMPLEMENTATION.
       WHERE kunnr = @name_keys-table_line
       INTO TABLE @DATA(customer_names).
 
-    DATA(names_lookup) = VALUE HASHED TABLE OF kna1
-      WITH UNIQUE KEY kunnr ##NEEDED.
+    DATA names_lookup TYPE HASHED TABLE OF kna1 WITH UNIQUE KEY kunnr.
     LOOP AT customer_names ASSIGNING FIELD-SYMBOL(<n>).
       INSERT VALUE #( kunnr = <n>-kunnr name1 = <n>-name1 )
         INTO TABLE names_lookup.
@@ -200,22 +201,20 @@ CLASS lcl_main IMPLEMENTATION.
     LOOP AT ship_to_keys ASSIGNING FIELD-SYMBOL(<sh>).
       DATA(entry) = VALUE ty_hierarchy( kunnr = <sh> ).
 
-      READ TABLE level1 INTO DATA(l1_row)
-        WITH KEY kunnr = <sh>.
+      READ TABLE level1 INTO DATA(l1_row) WITH KEY kunnr = <sh>.
       IF sy-subrc = 0.
         entry-hier1_kunnr = l1_row-hkunnr.
         READ TABLE names_lookup ASSIGNING FIELD-SYMBOL(<nm1>)
-          WITH KEY kunnr = l1_row-hkunnr.
+          WITH TABLE KEY kunnr = l1_row-hkunnr.
         IF sy-subrc = 0.
           entry-hier1_name = <nm1>-name1.
         ENDIF.
 
-        READ TABLE level2 INTO DATA(l2_row)
-          WITH KEY kunnr = l1_row-hkunnr.
+        READ TABLE level2 INTO DATA(l2_row) WITH KEY kunnr = l1_row-hkunnr.
         IF sy-subrc = 0.
           entry-hier2_kunnr = l2_row-hkunnr.
           READ TABLE names_lookup ASSIGNING FIELD-SYMBOL(<nm2>)
-            WITH KEY kunnr = l2_row-hkunnr.
+            WITH TABLE KEY kunnr = l2_row-hkunnr.
           IF sy-subrc = 0.
             entry-hier2_name = <nm2>-name1.
           ENDIF.
@@ -226,9 +225,10 @@ CLASS lcl_main IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
+
   METHOD aggregate_data.
 *   ---------- Materialkurztexte (Sprache des Anwenders) ----------
-    DATA(matnr_keys) = VALUE STANDARD TABLE OF matnr( ).
+    DATA matnr_keys TYPE STANDARD TABLE OF matnr WITH EMPTY KEY.
     LOOP AT invoices ASSIGNING FIELD-SYMBOL(<inv>).
       INSERT <inv>-matnr INTO TABLE matnr_keys.
     ENDLOOP.
@@ -242,18 +242,14 @@ CLASS lcl_main IMPLEMENTATION.
         AND spras = @sy-langu
       INTO TABLE @DATA(material_texts).
 
-    DATA(material_lookup) = VALUE HASHED TABLE OF makt
-      WITH UNIQUE KEY matnr ##NEEDED.
+    DATA material_lookup TYPE HASHED TABLE OF makt WITH UNIQUE KEY matnr.
     LOOP AT material_texts ASSIGNING FIELD-SYMBOL(<mt>).
-      INSERT VALUE #( matnr = <mt>-matnr maktx = <mt>-maktx
-                      spras = sy-langu )
+      INSERT VALUE #( matnr = <mt>-matnr maktx = <mt>-maktx spras = sy-langu )
         INTO TABLE material_lookup.
     ENDLOOP.
 
-*   ---------- Kundennamen Warenempfaenger ----------
-    DATA(ship_to_names) = VALUE HASHED TABLE OF kna1
-      WITH UNIQUE KEY kunnr ##NEEDED.
-    DATA(ship_to_keys) = VALUE STANDARD TABLE OF kunnr( ).
+*   ---------- Kundennamen der Warenempfaenger ----------
+    DATA ship_to_keys TYPE STANDARD TABLE OF kunnr WITH EMPTY KEY.
     LOOP AT invoices ASSIGNING <inv>.
       INSERT <inv>-kunwe INTO TABLE ship_to_keys.
     ENDLOOP.
@@ -266,6 +262,7 @@ CLASS lcl_main IMPLEMENTATION.
       WHERE kunnr = @ship_to_keys-table_line
       INTO TABLE @DATA(ship_to_kna1).
 
+    DATA ship_to_names TYPE HASHED TABLE OF kna1 WITH UNIQUE KEY kunnr.
     LOOP AT ship_to_kna1 ASSIGNING FIELD-SYMBOL(<k>).
       INSERT VALUE #( kunnr = <k>-kunnr name1 = <k>-name1 )
         INTO TABLE ship_to_names.
@@ -273,7 +270,7 @@ CLASS lcl_main IMPLEMENTATION.
 
 *   ---------- Pivot-Aggregation (HASHED-Lookup fuer O(1)-Zugriff) ----------
     DATA work TYPE HASHED TABLE OF ty_result
-                   WITH UNIQUE KEY hier2_kunnr hier1_kunnr kunnr matnr.
+              WITH UNIQUE KEY hier2_kunnr hier1_kunnr kunnr matnr.
 
     LOOP AT invoices ASSIGNING <inv>.
 *     Monatsbucket bestimmen
@@ -281,15 +278,15 @@ CLASS lcl_main IMPLEMENTATION.
       READ TABLE months ASSIGNING FIELD-SYMBOL(<bucket>)
         WITH TABLE KEY spmon = spmon_key.
       IF sy-subrc <> 0.
-        CONTINUE.   "Datum ausserhalb der 12-Monats-Window
+        CONTINUE.   "Datum liegt ausserhalb des 12-Monats-Windows
       ENDIF.
 
-*     Hierarchie / Namen ermitteln
+*     Hierarchie und Namen ermitteln
       DATA hier_entry TYPE ty_hierarchy.
       CLEAR hier_entry.
       READ TABLE hierarchy INTO hier_entry
         WITH TABLE KEY kunnr = <inv>-kunwe.
-      hier_entry-kunnr = <inv>-kunwe.
+      hier_entry-kunnr = <inv>-kunwe.   "sicherstellen, auch ohne Hierarchieeintrag
 
       DATA(name_we) = VALUE name1( ).
       READ TABLE ship_to_names ASSIGNING FIELD-SYMBOL(<wename>)
@@ -305,7 +302,7 @@ CLASS lcl_main IMPLEMENTATION.
         maktx_text = <mat>-maktx.
       ENDIF.
 
-*     Ergebniszeile suchen / anlegen
+*     Ergebniszeile suchen oder neu anlegen
       READ TABLE work ASSIGNING FIELD-SYMBOL(<res>)
         WITH TABLE KEY hier2_kunnr = hier_entry-hier2_kunnr
                        hier1_kunnr = hier_entry-hier1_kunnr
@@ -325,7 +322,7 @@ CLASS lcl_main IMPLEMENTATION.
         ) INTO TABLE work ASSIGNING <res>.
       ENDIF.
 
-*     Menge in Pivot-Spalte addieren (dynamischer Spaltenzugriff)
+*     Menge per dynamischem Komponentenzugriff in Pivot-Spalte addieren
       ASSIGN COMPONENT <bucket>-column_name OF STRUCTURE <res>
         TO FIELD-SYMBOL(<month_value>).
       IF <month_value> IS ASSIGNED.
@@ -335,10 +332,13 @@ CLASS lcl_main IMPLEMENTATION.
       <res>-total = <res>-total + <inv>-fkimg.
     ENDLOOP.
 
-*   Uebernahme in Standard-Ergebnistabelle fuer ALV
-    result = VALUE #( FOR <w> IN work ( <w> ) ).
+*   Uebernahme in Standard-Ergebnistabelle fuer SALV
+    LOOP AT work INTO DATA(result_line).
+      APPEND result_line TO result.
+    ENDLOOP.
     SORT result BY hier2_kunnr hier1_kunnr kunnr matnr.
   ENDMETHOD.
+
 
   METHOD display_alv.
     DATA alv TYPE REF TO cl_salv_table.
@@ -348,18 +348,18 @@ CLASS lcl_main IMPLEMENTATION.
           IMPORTING r_salv_table = alv
           CHANGING  t_table      = result ).
 
-*       ---------- Standard-ALV-Funktionen aktivieren ----------
+*       Standard-ALV-Funktionen (Sortieren, Filtern, Exportieren)
         alv->get_functions( )->set_all( abap_true ).
         alv->get_display_settings( )->set_striped_pattern( abap_true ).
         alv->get_display_settings( )->set_list_header( 'Materialdispositions-Auswertung' ).
 
-*       ---------- Spalten konfigurieren ----------
+*       Spaltenbreiten automatisch anpassen
         DATA(columns) = alv->get_columns( ).
         columns->set_optimize( abap_true ).
 
-*       Hierarchiestufen
+*       Hierarchiestufen – Spaltenbezeichner (scrtext_s max. 10 Zeichen)
         DATA(col) = columns->get_column( 'HIER2_KUNNR' ).
-        col->set_short_text( 'Hier.Stufe2' ).
+        col->set_short_text( 'Hier2-Nr.' ).
         col->set_medium_text( 'Hierarchie 2' ).
         col->set_long_text( 'Hierarchie Stufe 2' ).
 
@@ -369,7 +369,7 @@ CLASS lcl_main IMPLEMENTATION.
         col->set_long_text( 'Name Hierarchie 2' ).
 
         col = columns->get_column( 'HIER1_KUNNR' ).
-        col->set_short_text( 'Hier.Stufe1' ).
+        col->set_short_text( 'Hier1-Nr.' ).
         col->set_medium_text( 'Hierarchie 1' ).
         col->set_long_text( 'Hierarchie Stufe 1' ).
 
@@ -394,20 +394,20 @@ CLASS lcl_main IMPLEMENTATION.
         col->set_long_text( 'Materialnummer' ).
 
         col = columns->get_column( 'MAKTX' ).
-        col->set_short_text( 'Mat.Kurz' ).
+        col->set_short_text( 'Mat.Text' ).
         col->set_medium_text( 'Materialtext' ).
         col->set_long_text( 'Materialkurztext' ).
 
         col = columns->get_column( 'VRKME' ).
-        col->set_short_text( 'VME' ).
-        col->set_medium_text( 'VerkaufsME' ).
+        col->set_short_text( 'VkME' ).
+        col->set_medium_text( 'Verkaufs-ME' ).
         col->set_long_text( 'Verkaufsmengeneinheit' ).
 
-*       Monatsspalten dynamisch beschriften / leere ausblenden
+*       Monatsspalten M01..M12 dynamisch beschriften
+*       Spalten ohne Bucket-Eintrag (Zeitraum < 12 Monate) ausblenden
         DO c_mat_dispo-months_window TIMES.
           DATA(col_name) = CONV lvc_fname(
             |M{ sy-index WIDTH = 2 ALIGN = RIGHT PAD = '0' }| ).
-
           DATA(month_col) = columns->get_column( col_name ).
 
           READ TABLE months ASSIGNING FIELD-SYMBOL(<m>)
@@ -422,24 +422,18 @@ CLASS lcl_main IMPLEMENTATION.
         ENDDO.
 
         col = columns->get_column( 'TOTAL' ).
-        col->set_short_text( 'Summe' ).
+        col->set_short_text( 'Gesamt' ).
         col->set_medium_text( 'Gesamtsumme' ).
-        col->set_long_text( 'Gesamtsumme 12 Monate' ).
+        col->set_long_text( 'Gesamtsumme Zeitraum' ).
 
-*       ---------- Sortierung mit Zwischensummen ----------
+*       Sortierung mit Subtotalen je Hierarchiestufe / Kunde
         DATA(sorts) = alv->get_sorts( ).
-        sorts->add_sort(
-          columnname = 'HIER2_KUNNR'
-          subtotal   = abap_true ).
-        sorts->add_sort(
-          columnname = 'HIER1_KUNNR'
-          subtotal   = abap_true ).
-        sorts->add_sort(
-          columnname = 'KUNNR'
-          subtotal   = abap_true ).
+        sorts->add_sort( columnname = 'HIER2_KUNNR' subtotal = abap_true ).
+        sorts->add_sort( columnname = 'HIER1_KUNNR' subtotal = abap_true ).
+        sorts->add_sort( columnname = 'KUNNR'       subtotal = abap_true ).
         sorts->add_sort( columnname = 'MATNR' ).
 
-*       ---------- Aggregationen (Summen) ----------
+*       Aggregationen: Summe fuer alle Monats- und Gesamtspalten
         DATA(aggs) = alv->get_aggregations( ).
         DO c_mat_dispo-months_window TIMES.
           col_name = |M{ sy-index WIDTH = 2 ALIGN = RIGHT PAD = '0' }|.
