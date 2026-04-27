@@ -6,23 +6,21 @@
 
 CLASS lcl_main IMPLEMENTATION.
 
-  METHOD set_default_period.
-*   Default: erster Tag (heutiger Monat - 11) bis letzter Tag (heutiger Monat)
+METHOD set_default_period.
     DATA(month_start) = sy-datum.
     month_start+6(2)  = '01'.
 
-*   letzter Tag des aktuellen Monats: Anfang Folgemonat - 1 Tag
-*   Hinweis: explizite Typisierung als D, da DATA(...) bei Datums-Arithmetik
-*   sonst Typ I ableiten wuerde (kein Teilfeldzugriff moeglich).
-    DATA period_high TYPE d.
-    period_high       = month_start + 31.   "irgendwo im Folgemonat
-    period_high+6(2)  = '01'.                "1. Tag des Folgemonats
-    period_high       = period_high - 1.     "letzter Tag des aktuellen Monats
+    " Fehlerbehebung: Ergebnis der Rechnung explizit nach D konvertieren
+    DATA(next_month)  = CONV d( month_start + 31 ).
+    next_month+6(2)   = '01'.
 
-*   erster Tag von vor 11 Monaten = 12-Monats-Window
+    DATA(period_high) = CONV d( next_month - 1 ).
+
     DATA(period_low) = month_start.
     DO 11 TIMES.
-      period_low = period_low - 1.
+      " Hier ist period_low bereits als D deklariert (durch month_start),
+      " daher ist die Zuweisung hier okay, aber CONV schadet nicht.
+      period_low = CONV d( period_low - 1 ).
       period_low+6(2) = '01'.
     ENDDO.
 
