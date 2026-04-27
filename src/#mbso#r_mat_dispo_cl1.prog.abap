@@ -12,9 +12,12 @@ CLASS lcl_main IMPLEMENTATION.
     month_start+6(2)  = '01'.
 
 *   letzter Tag des aktuellen Monats: Anfang Folgemonat - 1 Tag
-    DATA(next_month)  = month_start + 31.
-    next_month+6(2)   = '01'.
-    DATA(period_high) = next_month - 1.
+*   Hinweis: explizite Typisierung als D, da DATA(...) bei Datums-Arithmetik
+*   sonst Typ I ableiten wuerde (kein Teilfeldzugriff moeglich).
+    DATA period_high TYPE d.
+    period_high       = month_start + 31.   "irgendwo im Folgemonat
+    period_high+6(2)  = '01'.                "1. Tag des Folgemonats
+    period_high       = period_high - 1.     "letzter Tag des aktuellen Monats
 
 *   erster Tag von vor 11 Monaten = 12-Monats-Window
     DATA(period_low) = month_start.
