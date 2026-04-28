@@ -44,6 +44,17 @@ TYPES:
   tt_hierarchy TYPE HASHED TABLE OF ty_hierarchy WITH UNIQUE KEY kunnr.
 
 *----------------------------------------------------------------------*
+* Bestand pro Material (Summe LABST ueber alle Werke / Lagerorte)
+*----------------------------------------------------------------------*
+TYPES:
+  BEGIN OF ty_stock,
+    matnr   TYPE matnr,
+    meins   TYPE meins,        "Basismengeneinheit (aus MARA)
+    bestand TYPE labst,        "Frei verwendbarer Bestand
+  END OF ty_stock,
+  tt_stock TYPE HASHED TABLE OF ty_stock WITH UNIQUE KEY matnr.
+
+*----------------------------------------------------------------------*
 * Ergebniszeile fuer ALV-Ausgabe (Pivot 12 Monate)
 *----------------------------------------------------------------------*
 TYPES:
@@ -60,7 +71,9 @@ TYPES:
     "-- Material
     matnr       TYPE matnr,
     maktx       TYPE maktx,
-    vrkme       TYPE vrkme,
+    meins       TYPE meins,        "Basismengeneinheit
+    bestand     TYPE labst,        "aktueller Bestand alle Werke/Lager
+    vrkme       TYPE vrkme,        "Verkaufsmengeneinheit aus Faktura
     "-- 12 Monatsspalten (M01 = aeltester Monat im Zeitraum)
     m01         TYPE vbrp-fkimg,
     m02         TYPE vbrp-fkimg,

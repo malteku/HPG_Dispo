@@ -249,6 +249,21 @@ METHOD set_default_period.
         INTO TABLE material_lookup.
     ENDLOOP.
 
+*   ---------- Bestand je Material ueber alle Werke / Lagerorte ----------
+*   Summe LABST aus MARD + Basismengeneinheit aus MARA.
+*   Hinweis S/4HANA: MARD existiert weiterhin; alternativ kann auf
+*   Stock-CDS-Views (z.B. I_MaterialStockBasic) umgestellt werden.
+    DATA stock_lookup TYPE tt_stock.
+    SELECT mard~matnr,
+           mara~meins,
+           SUM( mard~labst ) AS bestand
+      FROM mard
+        INNER JOIN mara ON mara~matnr = mard~matnr
+      FOR ALL ENTRIES IN @matnr_keys
+      WHERE mard~matnr = @matnr_keys-table_line
+      GROUP BY mard~matnr, mara~meins
+      INTO TABLE @stock_lookup.
+
 *   ---------- Kundennamen der Warenempfaenger ----------
     DATA ship_to_keys TYPE STANDARD TABLE OF kunnr WITH EMPTY KEY.
     LOOP AT invoices ASSIGNING <inv>.
@@ -303,6 +318,15 @@ METHOD set_default_period.
         maktx_text = <mat>-maktx.
       ENDIF.
 
+      DATA(stock_qty)  = VALUE labst( ).
+      DATA(base_unit)  = VALUE meins( ).
+      READ TABLE stock_lookup ASSIGNING FIELD-SYMBOL(<st>)
+        WITH TABLE KEY matnr = <inv>-matnr.
+      IF sy-subrc = 0.
+        stock_qty = <st>-bestand.
+        base_unit = <st>-meins.
+      ENDIF.
+
 *     Ergebniszeile suchen oder neu anlegen
       READ TABLE work ASSIGNING FIELD-SYMBOL(<res>)
         WITH TABLE KEY hier2_kunnr = hier_entry-hier2_kunnr
@@ -319,6 +343,8 @@ METHOD set_default_period.
           name1       = name_we
           matnr       = <inv>-matnr
           maktx       = maktx_text
+          meins       = base_unit
+          bestand     = stock_qty
           vrkme       = <inv>-vrkme
         ) INTO TABLE work ASSIGNING <res>.
       ENDIF.
@@ -398,6 +424,16 @@ METHOD set_default_period.
         col->set_short_text( 'Mat.Text' ).
         col->set_medium_text( 'Materialtext' ).
         col->set_long_text( 'Materialkurztext' ).
+
+        col = columns->get_column( 'MEINS' ).
+        col->set_short_text( 'BME' ).
+        col->set_medium_text( 'Basis-ME' ).
+        col->set_long_text( 'Basismengeneinheit' ).
+
+        col = columns->get_column( 'BESTAND' ).
+        col->set_short_text( 'Bestand' ).
+        col->set_medium_text( 'Akt. Bestand' ).
+        col->set_long_text( 'Aktueller Bestand alle Lager' ).
 
         col = columns->get_column( 'VRKME' ).
         col->set_short_text( 'VkME' ).
