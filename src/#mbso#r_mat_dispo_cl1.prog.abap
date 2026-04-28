@@ -10,24 +10,24 @@ METHOD set_default_period.
     DATA(month_start) = sy-datum.
     month_start+6(2)  = '01'.
 
-    " Fehlerbehebung: Ergebnis der Rechnung explizit nach D konvertieren
+    " Hier ist CONV nötig, weil wir mit DATA(..) eine NEUE Variable deklarieren
     DATA(next_month)  = CONV d( month_start + 31 ).
     next_month+6(2)   = '01'.
 
     DATA(period_high) = CONV d( next_month - 1 ).
 
+    " period_low wird hier als Datum (D) deklariert
     DATA(period_low) = month_start.
     DO 11 TIMES.
-      " Hier ist period_low bereits als D deklariert (durch month_start),
-      " daher ist die Zuweisung hier okay, aber CONV schadet nicht.
-      period_low = CONV d( period_low - 1 ).
+      " Hier KEIN CONV nötig, da period_low bereits Typ D ist!
+      period_low = period_low - 1.
       period_low+6(2) = '01'.
     ENDDO.
 
-    s_fkdat = VALUE #( ( sign   = 'I'
+    s_fkdat = VALUE #( sign   = 'I'
                          option = 'BT'
                          low    = period_low
-                         high   = period_high ) ).
+                         high   = period_high ).
   ENDMETHOD.
 
 

@@ -1,6 +1,7 @@
 *&---------------------------------------------------------------------*
 *& Report /MBSO/R_MAT_DISPO
 *&---------------------------------------------------------------------*
+*& CLAUDE
 *& Materialdisposition - Auswertung Fakturamengen pro Material
 *& je Warenempfaenger und Kundenhierarchie als Pivot ueber 12 Monate.
 *&
