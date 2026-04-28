@@ -250,19 +250,25 @@ METHOD set_default_period.
     ENDLOOP.
 
 *   ---------- Bestand je Material ueber alle Werke / Lagerorte ----------
-*   Summe LABST aus MARD + Basismengeneinheit aus MARA.
-*   Hinweis S/4HANA: MARD existiert weiterhin; alternativ kann auf
-*   Stock-CDS-Views (z.B. I_MaterialStockBasic) umgestellt werden.
+*   FOR ALL ENTRIES + GROUP BY ist in Open SQL nicht kombinierbar.
+*   Loesung: RANGE-Tabelle bauen, IN-Praedikat erlaubt GROUP BY + SUM.
+    DATA matnr_range TYPE RANGE OF matnr.
+    LOOP AT matnr_keys INTO DATA(matnr_key).
+      INSERT VALUE #( sign = 'I' option = 'EQ' low = matnr_key )
+        INTO TABLE matnr_range.
+    ENDLOOP.
+
     DATA stock_lookup TYPE tt_stock.
-    SELECT mard~matnr,
-           mara~meins,
-           SUM( mard~labst ) AS bestand
-      FROM mard
-        INNER JOIN mara ON mara~matnr = mard~matnr
-      FOR ALL ENTRIES IN @matnr_keys
-      WHERE mard~matnr = @matnr_keys-table_line
-      GROUP BY mard~matnr, mara~meins
-      INTO TABLE @stock_lookup.
+    IF matnr_range IS NOT INITIAL.
+      SELECT mard~matnr,
+             mara~meins,
+             SUM( mard~labst ) AS bestand
+        FROM mard
+          INNER JOIN mara ON mara~matnr = mard~matnr
+        WHERE mard~matnr IN @matnr_range
+        GROUP BY mard~matnr, mara~meins
+        INTO TABLE @stock_lookup.
+    ENDIF.
 
 *   ---------- Kundennamen der Warenempfaenger ----------
     DATA ship_to_keys TYPE STANDARD TABLE OF kunnr WITH EMPTY KEY.
